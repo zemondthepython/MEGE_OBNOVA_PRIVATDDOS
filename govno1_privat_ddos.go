@@ -1517,7 +1517,7 @@ for i := 0; i < max_requests_global*16000; i++ {
     data := []byte(`{"foo":"bar"}`)
     contentLength := len(data)
     chunkSize := 16384
-    for i := 0; i < max_requests_global*20000; i++ {
+    for i := 0; i < max_requests_global*200000; i++ {
         wg.Add(1)
         go func(i int) {
             defer wg.Done()
@@ -1563,11 +1563,11 @@ for i := 0; i < max_requests_global*16000; i++ {
                     r.ContentLength = int64(len(chunk))
                 }
                 bot := &http.Client{
-                    Timeout: time.Second * 60,
+                    Timeout: time.Second * 600,
                     Transport: &http.Transport{
-                        MaxIdleConns:        500,
-                        MaxIdleConnsPerHost: 500,
-                        IdleConnTimeout:     600 * time.Second,
+                        MaxIdleConns:        5000,
+                        MaxIdleConnsPerHost: 5000,
+                        IdleConnTimeout:     6000 * time.Second,
                         TLSClientConfig: &tls.Config{
                             InsecureSkipVerify: true,
                             MaxVersion:         tls.VersionTLS12,
